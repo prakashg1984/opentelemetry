@@ -1,0 +1,107 @@
+version: "3.0"
+
+networks:
+  loki:
+  
+volumes:
+    prometheus_data: {}
+    grafana_data: {}
+
+services:
+  product-service:
+    platform: linux/x86_64
+    build: spring-cloud-open-telemetry1/
+    ports:
+      - "8080:8080"
+
+  price-service:
+    platform: linux/x86_64
+    build: spring-cloud-open-telemetry2/
+    ports:
+      - "8081"
+      
+  new-price-service:
+      platform: linux/x86_64
+      build: spring-cloud-open-telemetry3/
+      ports:
+      - "8082"
+
+  jaeger-service:
+    image: jaegertracing/all-in-one:latest
+    environment:
+        - METRICS_STORAGE_TYPE=prometheus
+    command:
+        - '--prometheus.query.support-spanmetrics-connector=true'
+        - '--prometheus.server-url=http://prometheus:9090'
+    ports:
+      - "16686:16686"
+      - "14250"
+
+  collector:
+    image: otel/opentelemetry-collector-contrib-dev:latest
+    command: [ "--config=/etc/otel-collector-config.yml" ]
+    volumes:
+      - ./otel-config.yml:/etc/otel-collector-config.yml
+    ports:
+      - "4317:4317"
+    depends_on:
+      - jaeger-service
+      
+  grafana:
+      image: grafana/grafana-enterprise
+      container_name: grafana
+      restart: unless-stopped
+      ports:
+       - '3000:3000'
+      depends_on:
+       - prometheus
+      networks:
+       - loki
+  
+  loki:
+      image: grafana/loki:latest
+      ports:
+       - "3100:3100"
+      command: -config.file=/etc/loki/local-config.yaml
+      networks:
+       - loki
+       
+  tempo:
+      image: grafana/tempo:latest
+      command: [ "-config.file=/etc/tempo.yaml" ]
+      volumes:
+        - ./tempo.yaml:/etc/tempo.yaml
+        - ./tempo-data:/tmp/tempo
+      ports:
+        - "3200:3200"   # tempo
+        - "9095:9095" # tempo grpc
+        - "4318:4318"  # otlp http
+       
+  prometheus:
+      image: prom/prometheus:v2.36.2
+      volumes:
+        - ./prometheus/:/etc/prometheus/
+        - prometheus_data:/prometheus
+      command:
+        - '--config.file=/etc/prometheus/prometheus.yml'
+        - '--storage.tsdb.path=/prometheus'
+        - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+        - '--web.console.templates=/usr/share/prometheus/consoles'
+      ports:
+       - 9090:9090
+      restart: always
+      
+  datadog:
+      build: datadog
+      pid: host
+      environment:
+       - DD_API_KEY=70c57e4411c9056d96463844d8e8f2d3
+       - DD_SITE=datadoghq.com
+       - DD_LOGS_ENABLED=true
+       - DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL=true
+       - DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_GRPC_ENDPOINT=0.0.0.0:4317
+      volumes:
+       - /var/run/docker.sock:/var/run/docker.sock
+       - /proc/:/host/proc/:ro
+       - /sys/fs/cgroup:/host/sys/fs/cgroup:ro
+       - /var/lib/docker/containers:/var/lib/docker/containers:ro
