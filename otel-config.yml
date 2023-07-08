@@ -36,7 +36,7 @@ exporters:
   datadog:
     api:
       site: datadoghq.com
-      key: 70c57e4411c9056d96463844d8e8f2d3
+      key: 
   loki:
     endpoint: "http://localhost:3100/loki/api/v1/push"
   otlp:
